@@ -31,7 +31,6 @@ parser.add_argument("--s", dest="symbol", nargs='?', default='BTCUSDT')
 parser.add_argument("--i", dest="interval", nargs='?', default='1d')
 parser.add_argument("--rs", dest="range_start", nargs='?', default='1 Dec, 2017')
 parser.add_argument("--re", dest="range_end", nargs='?', default=str(datetime.now()))
-parser.add_argument("--o", dest="output", nargs='?', default='output.csv')
 args = parser.parse_args()
 
 print(args)
@@ -42,4 +41,4 @@ binance = BinanceAPI(api_key_file_path=args.binance_api_key, **kwargs)
 candlestick = binance.get_historical_candlestick(symbol=args.symbol,
             interval=args.interval, range_start=args.range_start, range_end=args.range_end)
 
-binance.export_candlestick_to_csv(output_file=args.output, candlestick=candlestick)
+binance.export_candlestick_to_csv(output_file=f'{args.symbol}_{args.interval}.csv', candlestick=candlestick)

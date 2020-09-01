@@ -18,18 +18,16 @@ parser.add_argument("--s", dest="symbol", nargs='?', default='BTCUSDT')
 parser.add_argument("--i", dest="interval", nargs='?', default='1d')
 parser.add_argument("--rs", dest="range_start", nargs='?', default='1 Dec, 2017')
 parser.add_argument("--re", dest="range_end", nargs='?', default=str(datetime.now()))
-parser.add_argument("--inds", dest="input_dataset", nargs='?')
+parser.add_argument("--d", dest="input_dataset", nargs='?')
 parser.add_argument("--ws", dest="window_size", nargs='?', type=int, default=30)
 parser.add_argument("--e", dest="epochs", nargs='?', type=int, default=50)
 parser.add_argument("--st", dest="split_time", nargs='?', type=float, default=0.8) # 80% for training
 parser.add_argument("--fs", dest="forecast_size", nargs='?', type=int, default=7)
+parser.add_argument("--m", dest="input_model", nargs='?')
 parser.add_argument("--v", dest="verbose", action='store_true')
 args = parser.parse_args()
 
 logger = init_logger(__name__, show_debug=args.verbose, log_to_file=False)
-
-WINDOW_SIZE = args.window_size
-EPOCHS = args.epochs
 
 def load_dataset(dataset_path='dataset.csv'):
   closing_prices = []
@@ -78,54 +76,55 @@ def plot_series(time, series, format="-", start=0, end=None, color='red'):
   plt.ylabel("Price")
   plt.grid(True)
 
-kwargs = {"logger": logger}
-DATASET = get_dataset(kwargs=kwargs) if args.input_dataset is None else load_dataset(dataset_path=args.input_dataset)
+def build_model(time, series, split_time, window_size=30, epochs=30, batch_size=64, shuffle_buffer_size=1000):
+  logger.info(msg='Training model...')
+  SPLIT_TIME = int(len(series) * split_time)
+  time_train = time[:SPLIT_TIME]
+  x_train = series[:SPLIT_TIME]
+  time_valid = time[SPLIT_TIME:]
+  x_valid = series[SPLIT_TIME:]
+  
+  train_set = windowed_dataset(x_train, window_size=window_size, batch_size=batch_size, shuffle_buffer_size=shuffle_buffer_size)
 
-series = np.array(DATASET)
-time = np.array(range(len(DATASET)))
+  model = tf.keras.models.Sequential([
+    tf.keras.layers.Conv1D(filters=64, 
+                        kernel_size=5,
+                        strides=1,
+                        padding="causal",
+                        activation="relu",
+                        input_shape=[None, 1]),
+    tf.keras.layers.LSTM(128, return_sequences=True),
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.LSTM(64, return_sequences=True),
+    tf.keras.layers.Dense(30, activation="relu"),
+    tf.keras.layers.Dense(10, activation="relu"),
+    tf.keras.layers.Dense(1)
+  ])
 
-scaler = MinMaxScaler(feature_range=(0, 1))
-series = scaler.fit_transform(series.reshape(-1, 1))
-series = series.reshape(-1, ) # reshape back to (x, )
+  model.compile(#loss=tf.keras.losses.Huber(),
+                loss='mae',
+                optimizer='adam',
+                metrics=["mae"])
 
-SPLIT_TIME = int(len(DATASET) * args.split_time)
-time_train = time[:SPLIT_TIME]
-x_train = series[:SPLIT_TIME]
-time_valid = time[SPLIT_TIME:]
-x_valid = series[SPLIT_TIME:]
+  history = model.fit(train_set, epochs=epochs)
 
-BATCH_SIZE = 64
-SHUFFLE_BUFFER_SIZE = 1000
+  if args.verbose:
+    show_training_results(history=history, model=model, series=series, time_valid=time_valid, x_valid=x_valid, split_time=SPLIT_TIME, window_size=window_size)
 
-train_set = windowed_dataset(x_train, window_size=WINDOW_SIZE, batch_size=BATCH_SIZE, shuffle_buffer_size=SHUFFLE_BUFFER_SIZE)
+  logger.info(msg='Training model has finished!')
+  return model
 
-model = tf.keras.models.Sequential([
-  tf.keras.layers.Conv1D(filters=64, 
-                      kernel_size=5,
-                      strides=1,
-                      padding="causal",
-                      activation="relu",
-                      input_shape=[None, 1]),
-  tf.keras.layers.LSTM(128, return_sequences=True),
-  tf.keras.layers.Dropout(0.2),
-  tf.keras.layers.LSTM(64, return_sequences=True),
-  tf.keras.layers.Dense(30, activation="relu"),
-  tf.keras.layers.Dense(10, activation="relu"),
-  tf.keras.layers.Dense(1)
-])
+def get_model():
+  if args.input_model:
+    return tf.keras.models.load_model(args.input_model)
 
-model.compile(#loss=tf.keras.losses.Huber(),
-              loss='mae',
-              optimizer='adam',
-              metrics=["mae"])
+  return build_model(time=time, series=series, split_time=args.split_time, window_size=args.window_size, epochs=args.epochs, batch_size=64, shuffle_buffer_size=1000)
 
-history = model.fit(train_set, epochs=EPOCHS)
-
-# checking results on valid set
-if args.verbose:
-  rnn_forecast = model_forecast(model, series[..., np.newaxis], WINDOW_SIZE)
-  rnn_forecast = rnn_forecast[SPLIT_TIME - WINDOW_SIZE:, -1, 0]
-  print(f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
+def show_training_results(history, model, series, time_valid, x_valid, split_time, window_size):
+  logger.debug(msg='Showing training results...')
+  rnn_forecast = model_forecast(model, series[..., np.newaxis], window_size)
+  rnn_forecast = rnn_forecast[split_time - window_size:, -1, 0]
+  logger.debug(msg=f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
   plt.figure(figsize=(10, 6))
   plt.title('Forecasting on valid set')
   plot_series(time_valid, x_valid, color='orange')
@@ -154,11 +153,23 @@ def add_last_pred(serie_values, time_steps, forecasts):
   time_steps = np.append(time_steps, [len(serie_values)], 0)
   return serie_values, time_steps
 
+kwargs = {"logger": logger}
+DATASET = get_dataset(kwargs=kwargs) if args.input_dataset is None else load_dataset(dataset_path=args.input_dataset)
+
+series = np.array(DATASET)
+time = np.array(range(len(DATASET)))
+
+scaler = MinMaxScaler(feature_range=(0, 1))
+series = scaler.fit_transform(series.reshape(-1, 1))
+series = series.reshape(-1, ) # reshape back to (x, )
+
+model = get_model()
+
 NUM_PREDS_IN_THE_FUTURE = args.forecast_size
 new_series = series
 new_time = time
 for i in range(NUM_PREDS_IN_THE_FUTURE):
-  rnn_forecast = model_forecast(model, new_series[..., np.newaxis], WINDOW_SIZE)
+  rnn_forecast = model_forecast(model, new_series[..., np.newaxis], args.window_size)
   rnn_forecast = rnn_forecast[:, -1, 0]
   new_series, new_time = add_last_pred(new_series, new_time, rnn_forecast)
 

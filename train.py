@@ -4,6 +4,10 @@ import os
 import argparse
 import csv
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from sklearn.preprocessing import MinMaxScaler
+
+from log import init_logger
 
 print(tf.__version__)
 
@@ -14,17 +18,20 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--d", dest="dataset", nargs='?')
 parser.add_argument("--ws", dest="window_size", nargs='?', type=int, default=30)
 parser.add_argument("--e", dest="epochs", nargs='?', type=int, default=50)
-parser.add_argument("--st", dest="split_time", nargs='?', type=float, default=0.8) # 80% for training
+parser.add_argument("--st", dest="split_time", nargs='?', type=float, default=0.8) # default 80% for training
+parser.add_argument("--out", dest="model_output", nargs='?', default='model')
+parser.add_argument("--v", dest="verbose", action='store_true')
 args = parser.parse_args()
 
-DATASET = args.dataset if args.dataset is not None else 'btc_price.csv'
+logger = init_logger(__name__, show_debug=args.verbose, log_to_file=False)
+
+DATASET = args.dataset if args.dataset is not None else 'btc_price_dataset.csv'
 WINDOW_SIZE = args.window_size
 EPOCHS = args.epochs
 
-print(f'Window Size: {WINDOW_SIZE}')
-print(f'Epochs: {EPOCHS}')
+logger.debug(msg=f'Window Size: {WINDOW_SIZE}')
+logger.debug(msg=f'Epochs: {EPOCHS}')
 
-# loading dataset and inspecting dataset
 def load_dataset(dataset=DATASET):
   closing_prices = []
   with open(dataset) as csvfile:
@@ -33,7 +40,6 @@ def load_dataset(dataset=DATASET):
     for row in reader:
       closing_prices.append(float(row[4]))
 
-    #closing_prices = np.flip(closing_prices) # flipping if dataset is in desc ordering
   return closing_prices
 
 def plot_series(time, series, format="-", start=0, end=None, color='red'):
@@ -44,26 +50,25 @@ def plot_series(time, series, format="-", start=0, end=None, color='red'):
 
 closing_prices = load_dataset(DATASET)
 
-print(f'num of samples: {len(closing_prices)}')
+logger.debug(msg=f'num of samples: {len(closing_prices)}')
 
 series = np.array(closing_prices)
 time = np.array(range(len(closing_prices)))
 
-print(f'series shape and type: {series.shape}, {type(series)}')
+logger.debug(msg=f'series shape and type: {series.shape}, {type(series)}')
 
-#
-from sklearn.preprocessing import MinMaxScaler
 scaler = MinMaxScaler(feature_range=(0, 1))
 series = scaler.fit_transform(series.reshape(-1, 1))
 series = series.reshape(-1, ) # reshape back to (x, )
-#
 
-print(f'series shape and type after scaling: {series.shape}, {type(series)}')
-print(f'time axis shape: {time.shape}')
+logger.debug(msg=f'series shape and type after scaling: {series.shape}, {type(series)}')
+logger.debug(msg=f'time axis shape: {time.shape}')
 
-#plt.figure(figsize=(10, 6))
-#plot_series(time, series)
-#plt.show()
+if args.verbose:
+  plt.figure(figsize=(10, 6))
+  plt.title('Dataset')
+  plot_series(time, series)
+  plt.show()
 
 def windowed_dataset(series, window_size, batch_size, shuffle_buffer_size):
   series = tf.expand_dims(series, axis=-1)
@@ -116,37 +121,34 @@ model.compile(#loss=tf.keras.losses.Huber(),
 
 history = model.fit(train_set, epochs=EPOCHS)
 
-model.save('model')
+model.save(args.model_output)
 
 # checking results on valid set
 rnn_forecast = model_forecast(model, series[..., np.newaxis], WINDOW_SIZE)
 rnn_forecast = rnn_forecast[SPLIT_TIME - WINDOW_SIZE:, -1, 0]
 
-print(f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
+logger.debug(msg=f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
 
-print(f'\nx_valid shape: {x_valid.shape}')
-print(f'time_valid shape: {time_valid.shape}')
-plt.figure(figsize=(10, 6))
-plot_series(time_valid, x_valid, color='orange')
+logger.debug(msg=f'\nx_valid shape: {x_valid.shape}')
+logger.debug(msg=f'time_valid shape: {time_valid.shape}')
 
-time_forecast = np.array(range(min(time_valid), max(time_valid)+2)) # create one more element for the x axis (for the new one that was predicted). +2 because arrays starts at zero and we are dealing with max and min of the elements instead of its actual size
-print(f'\nrnn_forecast shape: {rnn_forecast.shape}')
-print(f'time_forecast shape: {time_forecast.shape}')
-plot_series(time_forecast, rnn_forecast, color='purple')
-plt.show()
+if args.verbose:
+  plt.figure(figsize=(10, 6))
+  plt.title('Forecasting on valid set')
+  plot_series(time_valid, x_valid, color='orange')
 
-
-import matplotlib.image as mpimg
+  time_forecast = np.array(range(min(time_valid), max(time_valid)+2)) # create one more element for the x axis (for the new one that was predicted). +2 because arrays starts at zero and we are dealing with max and min of the elements instead of its actual size
+  logger.debug(msg=f'\nrnn_forecast shape: {rnn_forecast.shape}')
+  logger.debug(msg=f'time_forecast shape: {time_forecast.shape}')
+  plot_series(time_forecast, rnn_forecast, color='purple')
+  plt.show()
 
 #-----------------------------------------------------------
 # Retrieve a list of list results on training and test data
 # sets for each training epoch
 #-----------------------------------------------------------
 loss = history.history['loss']
-
 epochs=range(len(loss)) # Get number of epochs
-
-
 #------------------------------------------------
 # Plot training and validation loss per epoch
 #------------------------------------------------
@@ -155,5 +157,6 @@ plt.title('Training loss')
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend(["Loss"])
-
 plt.show()
+
+logger.info(msg=f'Model is saved at {args.model_output} directory')
