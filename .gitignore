@@ -1,0 +1,17 @@
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+__pycache__
+.cache
+.pytest_cache
+
+.idea
+
+*.csv
+*.json
+*.h5
+
+model
