@@ -96,6 +96,7 @@ def plot_forecast_against_groundtruth(series, time, forecast):
   print(f'forecast shape: {forecast.shape}')
 
   plt.figure(figsize=(10, 6))
+  plt.title('Trend Prediction')
   plot_series(time, series, color='orange')
 
   diff = (len(time) - len(forecast))

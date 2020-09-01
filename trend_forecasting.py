@@ -127,6 +127,7 @@ if args.verbose:
   rnn_forecast = rnn_forecast[SPLIT_TIME - WINDOW_SIZE:, -1, 0]
   print(f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
   plt.figure(figsize=(10, 6))
+  plt.title('Forecasting on valid set')
   plot_series(time_valid, x_valid, color='orange')
   time_forecast = np.array(range(min(time_valid), max(time_valid)+2)) # create one more element for the x axis (for the new one that was predicted). +2 because arrays starts at zero and we are dealing with max and min of the elements instead of its actual size
   plot_series(time_forecast, rnn_forecast, color='purple')
@@ -147,24 +148,22 @@ if args.verbose:
   plt.legend(["Loss"])
   plt.show()
 
-def plot_forecast_against_groundtruth(series, time, forecast):
-  plt.figure(figsize=(10, 6))
-  plot_series(time, series, color='orange')
-  diff = (len(time) - len(forecast))
-  plot_series(time[diff:], forecast, color='purple')
-  plt.show()
-
-def add_last_pred(series, time, forecasts):
+def add_last_pred(serie_values, time_steps, forecasts):
   last_pred = forecasts[len(forecasts) -1]  
-  series = np.append(series, [last_pred], 0)
-  new_time_step = len(series)
-  time = np.append(time, [new_time_step], 0)
-  return series, time
+  serie_values = np.append(serie_values, [last_pred], 0)
+  time_steps = np.append(time_steps, [len(serie_values)], 0)
+  return serie_values, time_steps
 
 NUM_PREDS_IN_THE_FUTURE = args.forecast_size
+new_series = series
+new_time = time
 for i in range(NUM_PREDS_IN_THE_FUTURE):
-  rnn_forecast = model_forecast(model, series[..., np.newaxis], WINDOW_SIZE)
+  rnn_forecast = model_forecast(model, new_series[..., np.newaxis], WINDOW_SIZE)
   rnn_forecast = rnn_forecast[:, -1, 0]
-  series, time = add_last_pred(series, time, rnn_forecast)
+  new_series, new_time = add_last_pred(new_series, new_time, rnn_forecast)
 
-plot_forecast_against_groundtruth(series, time, rnn_forecast)
+plt.figure(figsize=(10, 6))
+plt.title('Trend Forecasting')
+plot_series(new_time, new_series, color='gray')
+plot_series(time, series, color='orange')
+plt.show()
