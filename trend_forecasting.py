@@ -23,10 +23,10 @@ parser.add_argument("--ws", dest="window_size", nargs='?', type=int, default=30)
 parser.add_argument("--e", dest="epochs", nargs='?', type=int, default=50)
 parser.add_argument("--st", dest="split_time", nargs='?', type=float, default=0.8) # 80% for training
 parser.add_argument("--fs", dest="forecast_size", nargs='?', type=int, default=7)
-
+parser.add_argument("--v", dest="verbose", action='store_true')
 args = parser.parse_args()
 
-print(args)
+logger = init_logger(__name__, show_debug=args.verbose, log_to_file=False)
 
 WINDOW_SIZE = args.window_size
 EPOCHS = args.epochs
@@ -41,10 +41,7 @@ def load_dataset(dataset_path='dataset.csv'):
 
   return closing_prices
 
-def get_dataset():
-    logger = init_logger(__name__, show_debug=True, log_to_file=False)
-
-    kwargs = {"logger": logger}
+def get_dataset(**kwargs):
     binance = BinanceAPI(api_key_file_path=args.binance_api_key, **kwargs)
 
     candlestick = binance.get_historical_candlestick(symbol=args.symbol,
@@ -81,7 +78,8 @@ def plot_series(time, series, format="-", start=0, end=None, color='red'):
   plt.ylabel("Price")
   plt.grid(True)
 
-DATASET = get_dataset() if args.input_dataset is None else load_dataset(dataset_path=args.input_dataset)
+kwargs = {"logger": logger}
+DATASET = get_dataset(kwargs=kwargs) if args.input_dataset is None else load_dataset(dataset_path=args.input_dataset)
 
 series = np.array(DATASET)
 time = np.array(range(len(DATASET)))
@@ -124,37 +122,30 @@ model.compile(#loss=tf.keras.losses.Huber(),
 history = model.fit(train_set, epochs=EPOCHS)
 
 # checking results on valid set
-rnn_forecast = model_forecast(model, series[..., np.newaxis], WINDOW_SIZE)
-rnn_forecast = rnn_forecast[SPLIT_TIME - WINDOW_SIZE:, -1, 0]
-
-print(f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
-
-print(f'\nx_valid shape: {x_valid.shape}')
-print(f'time_valid shape: {time_valid.shape}')
-plt.figure(figsize=(10, 6))
-plot_series(time_valid, x_valid, color='orange')
-
-time_forecast = np.array(range(min(time_valid), max(time_valid)+2)) # create one more element for the x axis (for the new one that was predicted). +2 because arrays starts at zero and we are dealing with max and min of the elements instead of its actual size
-print(f'\nrnn_forecast shape: {rnn_forecast.shape}')
-print(f'time_forecast shape: {time_forecast.shape}')
-plot_series(time_forecast, rnn_forecast, color='purple')
-plt.show()
-
-#-----------------------------------------------------------
-# Retrieve a list of list results on training and test data
-# sets for each training epoch
-#-----------------------------------------------------------
-loss = history.history['loss']
-epochs=range(len(loss)) # Get number of epochs
-#------------------------------------------------
-# Plot training and validation loss per epoch
-#------------------------------------------------
-plt.plot(epochs, loss, 'r')
-plt.title('Training loss')
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.legend(["Loss"])
-plt.show()
+if args.verbose:
+  rnn_forecast = model_forecast(model, series[..., np.newaxis], WINDOW_SIZE)
+  rnn_forecast = rnn_forecast[SPLIT_TIME - WINDOW_SIZE:, -1, 0]
+  print(f'\nMean absolute error: {tf.keras.metrics.mean_absolute_error(x_valid, rnn_forecast[:-1]).numpy()}') # -1 element, the new one, that was predicted
+  plt.figure(figsize=(10, 6))
+  plot_series(time_valid, x_valid, color='orange')
+  time_forecast = np.array(range(min(time_valid), max(time_valid)+2)) # create one more element for the x axis (for the new one that was predicted). +2 because arrays starts at zero and we are dealing with max and min of the elements instead of its actual size
+  plot_series(time_forecast, rnn_forecast, color='purple')
+  plt.show()
+  #-----------------------------------------------------------
+  # Retrieve a list of list results on training and test data
+  # sets for each training epoch
+  #-----------------------------------------------------------
+  loss = history.history['loss']
+  epochs=range(len(loss)) # Get number of epochs
+  #------------------------------------------------
+  # Plot training and validation loss per epoch
+  #------------------------------------------------
+  plt.plot(epochs, loss, 'r')
+  plt.title('Training loss')
+  plt.xlabel("Epochs")
+  plt.ylabel("Loss")
+  plt.legend(["Loss"])
+  plt.show()
 
 def plot_forecast_against_groundtruth(series, time, forecast):
   plt.figure(figsize=(10, 6))
