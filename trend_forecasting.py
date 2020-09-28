@@ -59,7 +59,7 @@ def windowed_dataset(series, window_size, batch_size, shuffle_buffer_size):
   ds = ds.window(window_size + 1, shift=1, drop_remainder=True)
   ds = ds.flat_map(lambda w: w.batch(window_size + 1))
   ds = ds.shuffle(shuffle_buffer_size)
-  ds = ds.map(lambda w: (w[:-1], w[1:]))
+  ds = ds.map(lambda w: (w[:-1], w[-1]))
   return ds.batch(batch_size).prefetch(1)
 
 def model_forecast(model, series, window_size):
@@ -87,7 +87,7 @@ def build_model(time, series, split_time, window_size=30, epochs=30, batch_size=
   train_set = windowed_dataset(x_train, window_size=window_size, batch_size=batch_size, shuffle_buffer_size=shuffle_buffer_size)
 
   model = tf.keras.models.Sequential([
-    tf.keras.layers.Conv1D(filters=64, 
+    tf.keras.layers.Conv1D(filters=64,
                         kernel_size=5,
                         strides=1,
                         padding="causal",
